@@ -27,8 +27,14 @@ public sealed class LRPGrayscaleRenderer : PostProcessEffectRenderer<LRPGrayscal
         if (shader == null)
             return;
 
+        //utworzenie listy parametrów z shaderem
         var sheet = context.propertySheets.Get(shader);
+        //zmiana wartości parametrów shader'a
         sheet.properties.SetFloat("_Blend", settings.blend);
+        //wywołanie shader'a na obrazie (source) i przekazanie wyniku do (destination), z wykorzystaniem sparametryzowanego shader'a (sheet)
+        //source staje się naszym _MainTex
+        //destination to wynik działania shader'a
+        //Wartość 0 oznacza wywołanie tylko pierwszego pass'a z shader'a
         context.command.BlitFullscreenTriangle(context.source, context.destination, sheet, 0);
     }
 }

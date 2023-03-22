@@ -19,7 +19,7 @@ Shader "Hidden/URPGrayscale"
                 #include "Packages/com.unity.render-pipelines.universal/Shaders/PostProcessing/Common.hlsl"
 
                 //Podpięcie głównych metod shader'a
-                //Metoda 'vertex' zdefiniowana poniżej jako 'Vert'
+                //Metoda 'vertex', korzystamy z domyślnej metody zdefiniowanej w powyższym includ'zie Common.hlsl
                 #pragma vertex Vert
                 //Metoda 'fragment' zdefiniowana poniżej jako 'Frag'
                 #pragma fragment Frag

@@ -3,69 +3,90 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
-namespace PostProcess
+//nasz RenderPass do PP
+public class PostProcessPass : ScriptableRenderPass
 {
-    public class PostProcessPass : ScriptableRenderPass
+    //nazwa naszej tymczasowej tekstury
+    private static readonly int _tempBufferId = UnityEngine.Shader.PropertyToID("_TempBuffer");
+
+    //nasza nazwa dla passa w renderowaniu
+    private string _renderTag;
+    //ID tekstury wejściowej
+    private RenderTargetIdentifier _renderSourceId;
+    //ID tekstury tymczasowej (u nas pełni rolę destination)
+    private RenderTargetIdentifier _tempRenderTextureId;
+
+    //nasz PP
+    private MyVolumeComponent _volumeComponent;
+
+    //Inicjalizacja
+    public PostProcessPass(RenderPassEvent passEvent)
     {
-        private static readonly int _tempBufferId = UnityEngine.Shader.PropertyToID("_TempBuffer");
+        _tempRenderTextureId = new RenderTargetIdentifier(_tempBufferId);
+        _renderTag = $"PostProcessPass {passEvent}";
+        //tutaj przypisujemy kiedy RenderPass z naszym PP ma być renderowany
+        renderPassEvent = passEvent;
+    }
 
-        private string _renderTag;
-        private RenderTargetIdentifier _renderSourceId;
-        private RenderTargetIdentifier _tempRenderTextureId;
+    //Aktualizacja parametrów
+    public void Setup(in RenderTargetIdentifier sourceTextureId, MyVolumeComponent volumeComponent)
+    {
+        //ID source'a
+        _renderSourceId = sourceTextureId;
+        //Aktualne wartości dla naszego PP
+        _volumeComponent = volumeComponent;
+    }
 
-        private MyVolumeComponent _volumeComponent;
+    //wywołanie naszego RenderPass'a z
+    public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+    {
+        //nie robi nic jeśli kamera nie wspiera post processów
+        if (!renderingData.cameraData.postProcessEnabled)
+            return;
 
-        public PostProcessPass(RenderPassEvent passEvent)
-        {
-            _tempRenderTextureId = new RenderTargetIdentifier(_tempBufferId);
-            _renderTag = $"PostProcessPass {passEvent}";
-            renderPassEvent = passEvent;
-        }
+        //Stworzenie commandBuffer'a. Przechowuje on listę komend dla GPU
+        var commandBuffer = CommandBufferPool.Get(_renderTag);
+        //Dodanie komend do commandBuffer'a
+        AddRenderCommands(commandBuffer, ref renderingData);
+        //Wywołanie commandBuffer'a na GPU
+        context.ExecuteCommandBuffer(commandBuffer);
+        //Zwalnianie pamięci
+        CommandBufferPool.Release(commandBuffer);
+    }
 
-        public void Setup(in RenderTargetIdentifier sourceTextureId, MyVolumeComponent volumeComponent)
-        {
-            _renderSourceId = sourceTextureId;
-            _volumeComponent = volumeComponent;
-        }
+    private void AddRenderCommands(CommandBuffer commandBuffer, ref RenderingData renderingData)
+    {
+        var source = _renderSourceId;
+        var dest = _tempRenderTextureId;
 
-        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
-        {
-            if (!renderingData.cameraData.postProcessEnabled)            
-                return;            
+        //Stworzenie tekstury tymczasowej dla destination
+        SetupRenderTexture(commandBuffer, ref renderingData);
 
-            var commandBuffer = CommandBufferPool.Get(_renderTag);
-            Render(commandBuffer, ref renderingData);
-            context.ExecuteCommandBuffer(commandBuffer);
-            CommandBufferPool.Release(commandBuffer);
-        }
+        //Wyrenderowanie naszego PP
+        _volumeComponent.Render(commandBuffer, source, dest);
 
-        private void Render(CommandBuffer commandBuffer, ref RenderingData renderingData)
-        {
-            var source = _renderSourceId;
-            var dest = _tempRenderTextureId;
+        //Skopiowanie wyniku PP spowrotem do tekstury początkowej
+        //Robione jest to po to, aby kolejne PP mogły z niej skorzystać
+        commandBuffer.Blit(dest, source);
 
-            SetupRenderTexture(commandBuffer, ref renderingData);
+        //Czyszczenie pamięci
+        CleanupRenderTexture(commandBuffer, ref renderingData);
+    }
 
-            _volumeComponent.Render(commandBuffer, source, dest);
+    //Tworzenie tekstury tymczasowej
+    private void SetupRenderTexture(CommandBuffer commandBuffer, ref RenderingData renderingData)
+    {
+        ref var cameraData = ref renderingData.cameraData;
 
-            commandBuffer.Blit(dest, source);
+        var desc = new RenderTextureDescriptor(cameraData.camera.scaledPixelWidth, cameraData.camera.scaledPixelHeight);
+        desc.colorFormat = cameraData.isHdrEnabled ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.Default;
 
-            CleanupRenderTexture(commandBuffer, ref renderingData);
-        }
+        commandBuffer.GetTemporaryRT(_tempBufferId, desc);
+    }
 
-        private void SetupRenderTexture(CommandBuffer commandBuffer, ref RenderingData renderingData)
-        {
-            ref var cameraData = ref renderingData.cameraData;
-
-            var desc = new RenderTextureDescriptor(cameraData.camera.scaledPixelWidth, cameraData.camera.scaledPixelHeight);
-            desc.colorFormat = cameraData.isHdrEnabled ? RenderTextureFormat.DefaultHDR : RenderTextureFormat.Default;
-
-            commandBuffer.GetTemporaryRT(_tempBufferId, desc);
-        }
-
-        private void CleanupRenderTexture(CommandBuffer commandBuffer, ref RenderingData renderingData)
-        {
-            commandBuffer.ReleaseTemporaryRT(_tempBufferId);
-        }
+    //Zwalnianie pamięci
+    private void CleanupRenderTexture(CommandBuffer commandBuffer, ref RenderingData renderingData)
+    {
+        commandBuffer.ReleaseTemporaryRT(_tempBufferId);
     }
 }
